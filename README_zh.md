@@ -47,6 +47,8 @@ OpenRLHF 是第一个基于 Ray、vLLM、ZeRO-3 和 HuggingFace Transformers 构
 
 
 ## 新闻  
+- [2025/6] [Magistral](https://mistral.ai/static/research/magistral.pdf) 使用了 REINFORCE++-baseline 训练它们的推理模型.
+- [2025/5] [MARTI](https://github.com/TsinghuaC3I/MARTI) 作为 OpenRLHF 的分支版本已发布。它通过集成集中式多智能体交互与分布式策略训练，专为使用 RL 训练基于 LLM 的多智能体系统而设计。
 - [2025/5] OpenRLHF 0.8.0 支持 [Async Pipeline RLHF](./examples/scripts/train_reinforce_baseline_llama_ray_async.sh) (`--async_train`) 和 [Async Agent RLHF](./examples/scripts/train_reinforce_baseline_llama_ray_agent_async.sh)(`--agent_func_path`)
 - [2025/4] 发布博客 [Accelerating RLHF with vLLM, Best Practice from OpenRLHF](https://blog.vllm.ai/2025/04/23/openrlhf-vllm.html)
 - [2025/4] Clean OpenRLHF: 基于 Single Controller 和 Unified Packing Samples 重构了源码
@@ -55,7 +57,7 @@ OpenRLHF 是第一个基于 Ray、vLLM、ZeRO-3 和 HuggingFace Transformers 构
 - [2025/2] [LMM-R1](https://github.com/TideDra/lmm-r1) 是 OpenRLHF 的一个分支，旨在为多模态任务上复现 DeepSeek-R1 提供高性能的 RL 基础设施。
 - [2025/2] MIT & Microsoft 提出了 [On the Emergence of Thinking in LLMs I: Searching for the Right Intuition](https://arxiv.org/pdf/2502.06773) 基于 OpenRLHF
 - [2025/1] 港科大复现了 [DeepSeek-R1-Zero and DeepSeek-R1 training on small models 使用 OpenRLHF](https://github.com/hkust-nlp/simpleRL-reason)
-- [2024/12] 我们"提出"了 😊 [REINFORCE++ 对齐算法](https://www.researchgate.net/publication/387487679_REINFORCE_A_SIMPLE_AND_EFFICIENT_APPROACH_FOR_ALIGNING_LARGE_LANGUAGE_MODELS).
+- [2024/12] 我们"提出"了 😊 [REINFORCE++: A Simple and Efficient Approach for Aligning Large Language Models](https://arxiv.org/abs/2501.03262).
 - [2024/12] 在 [Notion Blog](https://hijkzzz.notion.site/unraveling-rlhf-and-its-variants-engineering-insights#147d9a33ecc9806090f3d5c749d31f05) 中，我们对 PPO、REINFORCE++、GRPO 和 RLOO 进行了分析。  
 - [2023/8] OpenRLHF 开启开源之旅. 
 
@@ -94,18 +96,23 @@ OpenRLHF 是第一个基于 Ray、vLLM、ZeRO-3 和 HuggingFace Transformers 构
 
 ```bash
 # 启动 docker container
-docker run --runtime=nvidia -it --rm --shm-size="10g" --cap-add=SYS_ADMIN -v $PWD:/openrlhf nvcr.io/nvidia/pytorch:24.07-py3 bash
+docker run --runtime=nvidia -it --rm --shm-size="10g" --cap-add=SYS_ADMIN -v $PWD:/openrlhf nvcr.io/nvidia/pytorch:25.02-py3 bash
 sudo pip uninstall xgboost transformer_engine flash_attn pynvml -y
 
 # pip install
 pip install openrlhf
 
-# 如果你需要使用 vLLM 加速 (安装 vLLM 0.8.5.post1)
+# 如果你需要使用 vLLM 加速 (安装 vLLM 0.9.1)
 pip install openrlhf[vllm]
 # 最新的 vLLM 也是支持的
 pip install openrlhf[vllm_latest]
 # 安装 vLLM、ring-flash-attention 和 Liger-Kernel
 pip install openrlhf[vllm,ring,liger]
+
+# 安装兼容 PyTorch 2.7 的 flash-attn 2.7.4.post1
+# Example for Python 3.12, replace filename if using 3.10 or 3.11
+pip install https://github.com/OpenRLHF/flash-attn-2.7.4.post1-builds/releases/download/v0.1/flash_attn-2.7.4.post1+pt270cu128cxx11abiTRUE-cp312-cp312-linux_x86_64.whl
+
 
 # pip install GitHub 上的最新版
 pip install git+https://github.com/OpenRLHF/OpenRLHF.git
@@ -117,7 +124,7 @@ pip install -e .
 ```
 
 > [!NOTE]
->我们推荐使用 vLLM 0.8.5.post1 及以上版本。
+>我们推荐使用 vLLM 0.9.1 及以上版本。
 >我们也提供了 [Dockerfiles for vLLM](./dockerfile/) 和 [Nvidia-Docker 一键安装脚本](./examples/scripts/nvidia_docker_install.sh)。
 
 ### 准备数据集
@@ -154,16 +161,6 @@ dataset = [{"input_key": [
 tokenizer.apply_chat_template(dataset[0]["input_key"], tokenize=False)
 
 "<s>[INST] Hello, how are you? [/INST]I'm doing great. How can I help you today?</s> [INST] I'd like to show off how chat templating works! [/INST]"
-```
-
-如何指定训练和测试数据分区 ?
-
-你可以使用 `data_type@data_dir` 的方式指定, 比如下面的数据集可以设置为 `--dataset json@./data`
-
-```
-data
-├── test.jsonl
-└── train.jsonl
 ```
 
 如何指定测试数据集 ?
@@ -330,7 +327,7 @@ ray job submit --address="http://127.0.0.1:8265" \
 > [!NOTE]
 > OpenRLHF 中的 RLOO 和 REINFORCE++-baseline 是基于 REINFORCE++ 的修改版本：
 > - REINFORCE++ 集成了 PPO 的关键优化技术（如优势归一化和 PPO-clip loss）到 REINFORCE，同时消除了对 Critic 网络的需求。
-> - REINFORCE++-baseline 使用`来自同一个 prompt 的多个样本的平均奖励`作为基线来重塑奖励（使用全局批次归一化 `/std`）。
+> - REINFORCE++-baseline 使用`来自同一个 prompt 的多个样本的平均奖励`作为基线来重塑奖励，随后和 REINFORCE++ 一样使用全局的优势归一化。
 > - OpenRLHF 中的 RLOO 通过引入`per token 的 KL 奖励`并使用 `PPO-clip loss` 来修改原始版本。
 > - Dr. GRPO 移除了 GRPO 中的组归一化 `/std`。
 
@@ -446,27 +443,13 @@ python -m openrlhf.cli.lora_combiner \
     --bf16
 ```
 
-## 性能
-
-我们通过启用 Adam offload、奖励模型（RM）和参考模型（Ref）offload 等技术，最大限度地优化了 DSChat 的性能，以增加推理阶段的微批次大小并避免内存不足问题。我们甚至修复了 DSChat 中的一些错误，为 LLaMA2 启用了 Hybrid Engine（HE）。使用优化后的 DSChat 和 OpenRLHF 训练 1024 个提示的 1 个 PPO epoch 所需的平均时间（秒）：
-
-| **大小** | **NVIDIA A800-80GB GPUs** | **优化后的 DSChat (带 Hybrid Engine)** | **OpenRLHF** | **加速比** |
-| :---: | :---: | :---: | :---: | :---: |
-| 7B | 16 | 855.09 | 471.11 | 1.82x |
-| 13B | 32 | 1528.93 | 608.93 | 2.5x |
-| 34B | 32 | 3634.98 | 1526.4 | 2.4x |
-| 70B | 32 | 10407.0 | 4488.53 | 2.3x |
-
-> [!NOTE]
-> 这些数据已经过时，请参考性能调优部分进行重新测试。
-
 ### 性能调优指南
 
 为了获得最佳性能，我们建议按 `vLLM:Actor:Critic = 1:1:1` 的比例分配节点。
 
 - 例如，对于 70B 模型和 48 个 A100 GPU，建议将 16 个 A100 GPU 分配给 vLLM 引擎，16 个 GPU 分配给 Actor 模型，剩余的 16 个 GPU 分配给 Critic 模型。
 - 当 RL 算法收敛性满足要求时请启用异步训练 `--async_train`。
-- 当有足够的 GPU 内存时，使用 hybrid engine `--colocate_all_models` 和 `--vllm_enable_sleep` 以及 `--deepspeed_enable_sleep`，而不是分布式 RLHF。
+- 当有足够的 GPU 内存时，使用 Hybrid engine `--colocate_all_models` 和 `--vllm_enable_sleep` 以及 `--deepspeed_enable_sleep`，而不是分布式 RLHF。
 - 启用 `--colocate_critic_reward`、`--colocate_actor_ref` 选项来合并节点。
 - 应该尽可能增加 `rollout_micro_batch_size`（并最小化 vLLM 引擎的 TP 大小）。在训练阶段，较大的 `--micro_train_batch_size` 更好，并启用 `--packing_samples`。
 - 当有足够的 GPU 内存时，请禁用 `--adam_offload` 并启用 `--overlap_comm`。同时启用 `--deepcompile` 来加速训练。
@@ -542,12 +525,22 @@ python -m openrlhf.cli.lora_combiner \
 (2024/7) 我们的 GitHub 组织从 OpenLLMAI 迁移到了 OpenRLHF.
 
 ## 引用
+OpenRLHF
 ```
 @article{hu2024openrlhf,
   title={OpenRLHF: An Easy-to-use, Scalable and High-performance RLHF Framework},
   author={Jian Hu and Xibin Wu and Zilin Zhu and Xianyu and Weixun Wang and Dehao Zhang and Yu Cao},
   journal={arXiv preprint arXiv:2405.11143},
   year={2024}
+}
+```
+REINFORCE++-baseline
+```
+@article{hu2025reinforce++,
+  title={Reinforce++: A simple and efficient approach for aligning large language models},
+  author={Hu, Jian},
+  journal={arXiv preprint arXiv:2501.03262},
+  year={2025}
 }
 ```
 
